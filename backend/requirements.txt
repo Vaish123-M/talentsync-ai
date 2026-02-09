@@ -1,1 +1,8 @@
 # Python dependencies
+
+# Core Framework
+Flask==3.0.0
+flask-cors==4.0.0
+
+# WSGI Server for Production
+gunicorn==21.2.0
