@@ -1,119 +1,132 @@
 """Resume upload and parsing API endpoints."""
-from flask import Blueprint, request, jsonify
-from pypdf import PdfReader
-import io
-import traceback
+import os
+from flask import Blueprint, request, jsonify, current_app
+import logging
+
+from app.services.resume_service import ResumeService
 
 
+logger = logging.getLogger(__name__)
 resume_bp = Blueprint('resume', __name__, url_prefix='/api/resumes')
+
+
+def get_resume_service():
+    """Get or create resume service instance."""
+    upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads')
+    return ResumeService(upload_folder)
 
 
 @resume_bp.route('/upload', methods=['POST'])
 def upload_resumes():
     """
-    Handle multiple PDF resume uploads and extract text.
+    Handle multiple PDF resume uploads and process them through the complete pipeline.
     
-    Expected: multipart/form-data with one or more files
-    Returns: JSON with extracted text from each resume
+    Pipeline stages:
+    1. Validate and save PDF files
+    2. Extract text from PDFs
+    3. Parse resumes using AI (LangChain + OpenAI)
+    4. Return structured candidate data
+    
+    Expected: multipart/form-data with 'files' or 'file' field containing PDF(s)
+    Returns: JSON with parsed candidate data including name, skills, experience, etc.
     """
     try:
         # Check if files were included in the request
         if 'files' not in request.files and 'file' not in request.files:
             return jsonify({
                 'status': 'error',
-                'message': 'No files provided. Please upload at least one PDF file.'
+                'message': 'No files provided. Please upload at least one PDF file using "files" or "file" field.'
             }), 400
         
         # Get uploaded files (supports both 'files' and 'file' field names)
         uploaded_files = request.files.getlist('files') or request.files.getlist('file')
         
+        # Validate that files were actually selected
         if not uploaded_files or uploaded_files[0].filename == '':
             return jsonify({
                 'status': 'error',
                 'message': 'No files selected for upload.'
             }), 400
         
-        results = []
-        errors = []
+        logger.info(f"Processing {len(uploaded_files)} uploaded file(s)")
         
-        # Process each uploaded file
-        for file in uploaded_files:
-            try:
-                # Validate file type
-                if not file.filename.lower().endswith('.pdf'):
-                    errors.append({
-                        'filename': file.filename,
-                        'error': 'Invalid file type. Only PDF files are accepted.'
-                    })
-                    continue
-                
-                # Read PDF content
-                pdf_bytes = file.read()
-                pdf_file = io.BytesIO(pdf_bytes)
-                
-                # Extract text from PDF
-                pdf_reader = PdfReader(pdf_file)
-                text_content = []
-                
-                for page_num, page in enumerate(pdf_reader.pages, start=1):
-                    page_text = page.extract_text()
-                    if page_text:
-                        text_content.append(page_text)
-                
-                # Combine all pages
-                full_text = '\n\n'.join(text_content)
-                
-                if not full_text.strip():
-                    errors.append({
-                        'filename': file.filename,
-                        'error': 'No text could be extracted from the PDF.'
-                    })
-                    continue
-                
-                # Add successful result
-                results.append({
-                    'filename': file.filename,
-                    'pages': len(pdf_reader.pages),
-                    'text': full_text,
-                    'status': 'success'
-                })
-                
-            except Exception as e:
-                errors.append({
-                    'filename': file.filename,
-                    'error': f'Failed to process file: {str(e)}'
-                })
+        # Process resumes through the service layer
+        resume_service = get_resume_service()
+        result = resume_service.process_uploaded_resumes(uploaded_files)
         
-        # Prepare response
-        response_data = {
-            'status': 'success' if results else 'error',
-            'message': f'Processed {len(results)} file(s) successfully.',
-            'results': results,
-            'total_uploaded': len(uploaded_files),
-            'successful': len(results),
-            'failed': len(errors)
-        }
+        # Determine HTTP status code
+        if result['successful'] > 0:
+            status_code = 200
+        elif result['failed'] > 0:
+            status_code = 400
+        else:
+            status_code = 500
         
-        if errors:
-            response_data['errors'] = errors
-        
-        status_code = 200 if results else 400
-        return jsonify(response_data), status_code
+        return jsonify(result), status_code
         
     except Exception as e:
+        logger.error(f"Unexpected error in upload endpoint: {str(e)}", exc_info=True)
         return jsonify({
             'status': 'error',
             'message': 'An unexpected error occurred during file upload.',
-            'error': str(e),
-            'traceback': traceback.format_exc()
+            'error': str(e)
+        }), 500
+
+
+@resume_bp.route('/validate', methods=['POST'])
+def validate_resumes():
+    """
+    Validate uploaded files without processing them.
+    
+    Useful for checking files before full processing.
+    """
+    try:
+        if 'files' not in request.files and 'file' not in request.files:
+            return jsonify({
+                'status': 'error',
+                'message': 'No files provided.'
+            }), 400
+        
+        uploaded_files = request.files.getlist('files') or request.files.getlist('file')
+        
+        if not uploaded_files or uploaded_files[0].filename == '':
+            return jsonify({
+                'status': 'error',
+                'message': 'No files selected.'
+            }), 400
+        
+        resume_service = get_resume_service()
+        validation_result = resume_service.validate_files(uploaded_files)
+        
+        return jsonify({
+            'status': 'success',
+            **validation_result
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in validation endpoint: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
         }), 500
 
 
 @resume_bp.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint for resume service."""
-    return jsonify({
-        'status': 'healthy',
-        'service': 'resume-parser',
-        'version': '1.0.0'
-    }), 200
+    try:
+        # Check if OpenAI API key is configured
+        openai_configured = bool(os.getenv('OPENAI_API_KEY'))
+        
+        return jsonify({
+            'status': 'healthy',
+            'service': 'resume-parser',
+            'version': '1.0.0',
+            'ai_configured': openai_configured,
+            'upload_folder': current_app.config.get('UPLOAD_FOLDER', 'uploads')
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e)
+        }), 500

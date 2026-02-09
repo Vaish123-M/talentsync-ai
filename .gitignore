@@ -119,3 +119,9 @@ chroma_data/
 *.temp
 .tmp/
 .temp/
+
+# Uploaded Files
+backend/uploads/*
+!backend/uploads/.gitkeep
+uploads/*
+!uploads/.gitkeep
