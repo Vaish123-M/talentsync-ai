@@ -1,6 +1,7 @@
 """Main Flask application module with app factory."""
 from flask import Flask, jsonify
 from flask_cors import CORS
+import os
 
 
 def create_app(config_name='development'):
@@ -29,13 +30,27 @@ def create_app(config_name='development'):
     app.config['JSON_SORT_KEYS'] = False
     app.config['JSONIFY_PRETTYPRINT_REGULAR'] = True
     
+    # File upload configuration
+    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+    app.config['UPLOAD_EXTENSIONS'] = ['.pdf']
+    
     # Enable CORS
     CORS(app)
+    
+    # Register blueprints
+    register_blueprints(app)
     
     # Register routes
     register_routes(app)
     
     return app
+
+
+def register_blueprints(app):
+    """Register Flask blueprints."""
+    from app.routes import resume_bp
+    
+    app.register_blueprint(resume_bp)
 
 
 def register_routes(app):
