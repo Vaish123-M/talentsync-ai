@@ -7,25 +7,18 @@ flask-cors==4.0.0
 # Environment Configuration
 python-dotenv==1.0.0
 
-# AI & Language Models
-langchain==0.1.0
-langchain-openai==0.0.2
-langchain-community==0.0.10
-
-# Vector Database
-chromadb==0.4.22
+# AI & Language Models (Updated for compatibility)
+langchain==0.3.0
+langchain-openai==0.2.0
+langchain-core==0.3.0
+langchain-community==0.3.0
 
 # PDF Processing
 pypdf==3.17.4
-pypdf2==3.0.1
 
 # Additional AI Dependencies
 openai==1.7.2
 tiktoken==0.5.2
-
-# Data Processing
-numpy==1.26.3
-pandas==2.1.4
 
 # WSGI Server for Production
 gunicorn==21.2.0
