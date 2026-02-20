@@ -106,8 +106,10 @@ def setup_logging(app):
 def register_blueprints(app):
     """Register Flask blueprints."""
     from app.routes import assistant_bp, resume_bp
+    from app.routes.ranking_feedback import ranking_bp
     
     app.register_blueprint(resume_bp)
+    app.register_blueprint(ranking_bp)
     if app.config.get('AI_ASSISTANT_ENABLED', True):
         app.register_blueprint(assistant_bp)
 

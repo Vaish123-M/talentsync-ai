@@ -7,6 +7,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from app.services.job_requirements_parser import parse_job_requirements
+from app.services.adaptive_ranking_service import get_adaptive_ranking_engine
 
 
 logger = logging.getLogger(__name__)
@@ -93,8 +94,32 @@ def calculate_semantic_similarity(job_description: str, candidates: List[Dict[st
         return []
 
 
-def calculate_final_score(skills_score: float, experience_score: float, summary_similarity_score: float) -> float:
-    """Calculate final weighted match score."""
+def calculate_final_score(
+    skills_score: float,
+    experience_score: float,
+    summary_similarity_score: float,
+    use_adaptive_weights: bool = True
+) -> float:
+    """
+    Calculate final weighted match score.
+    
+    Uses adaptive weights if enabled, otherwise uses default weights.
+    Default: skills 50%, experience 20%, summary 30%
+    """
+    if use_adaptive_weights:
+        try:
+            engine = get_adaptive_ranking_engine()
+            final_score, _ = engine.calculate_adaptive_score(
+                skills_score,
+                experience_score,
+                summary_similarity_score
+            )
+            return final_score
+        except Exception:
+            logger.exception("event=adaptive_score_calculation_failed falling_back_to_default")
+            use_adaptive_weights = False
+    
+    # Fallback to default weights
     final_score = (
         (skills_score * 0.5) +
         (experience_score * 0.2) +
@@ -106,7 +131,8 @@ def calculate_final_score(skills_score: float, experience_score: float, summary_
 def calculate_match_scores(
     job_description: str,
     candidates: List[Dict[str, Any]],
-    use_semantic: bool = False
+    use_semantic: bool = False,
+    use_adaptive_weights: bool = True
 ) -> List[Dict[str, Any]]:
     """Calculate weighted match scores and return ranked candidates.
 
@@ -114,6 +140,7 @@ def calculate_match_scores(
         job_description: Job description text.
         candidates: Candidate business objects from resume parsing.
         use_semantic: Whether to use embeddings for summary similarity.
+        use_adaptive_weights: Whether to use adaptive weights from feedback.
 
     Returns:
         Candidates with updated `match_score`, sorted descending by score.
@@ -139,7 +166,12 @@ def calculate_match_scores(
             summary_similarity_score = summary_scores[index] if index < len(summary_scores) else 0.0
             semantic_score = semantic_scores[index] if index < len(semantic_scores) else 0.0
             final_similarity = semantic_score if semantic_scores else summary_similarity_score
-            final_score = calculate_final_score(skills_score, experience_score, final_similarity)
+            final_score = calculate_final_score(
+                skills_score,
+                experience_score,
+                final_similarity,
+                use_adaptive_weights=use_adaptive_weights
+            )
 
             reasoning = _build_reasoning(
                 required_skills,
