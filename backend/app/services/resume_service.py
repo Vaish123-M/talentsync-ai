@@ -2,6 +2,7 @@
 import os
 import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List
 from pathlib import Path
 from werkzeug.utils import secure_filename
@@ -61,23 +62,45 @@ class ResumeService:
 
         logger.info("event=resume_upload_started total_files=%s", len(files))
         
-        for file in files:
-            try:
-                result = self._process_single_resume(file)
-                
-                if result['success']:
-                    candidates.append(result['candidate'])
-                else:
+        worker_count = int(os.getenv('RESUME_PARSE_WORKERS', '1') or 1)
+        if worker_count > 1 and len(files) > 1:
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                future_map = {executor.submit(self._process_single_resume, file): file for file in files}
+                for future in as_completed(future_map):
+                    file = future_map[future]
+                    try:
+                        result = future.result()
+                        if result['success']:
+                            candidates.append(result['candidate'])
+                        else:
+                            errors.append({
+                                'filename': file.filename,
+                                'message': result.get('error', 'Unknown error')
+                            })
+                    except Exception as e:
+                        logger.exception("event=resume_processing_failed filename=%s", file.filename)
+                        errors.append({
+                            'filename': file.filename,
+                            'message': str(e)
+                        })
+        else:
+            for file in files:
+                try:
+                    result = self._process_single_resume(file)
+                    
+                    if result['success']:
+                        candidates.append(result['candidate'])
+                    else:
+                        errors.append({
+                            'filename': file.filename,
+                            'message': result.get('error', 'Unknown error')
+                        })
+                except Exception as e:
+                    logger.exception("event=resume_processing_failed filename=%s", file.filename)
                     errors.append({
                         'filename': file.filename,
-                        'message': result.get('error', 'Unknown error')
+                        'message': str(e)
                     })
-            except Exception as e:
-                logger.exception("event=resume_processing_failed filename=%s", file.filename)
-                errors.append({
-                    'filename': file.filename,
-                    'message': str(e)
-                })
 
         if candidates:
             if self.vector_search_service is not None:

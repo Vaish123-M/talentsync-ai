@@ -48,7 +48,7 @@ const Sidebar = () => {
   };
   
   return (
-    <aside className="bg-white w-64 min-h-screen shadow-sm border-r border-gray-200 fixed left-0 top-16 bottom-0 overflow-y-auto">
+    <aside className="hidden md:block bg-white md:w-64 min-h-screen shadow-sm border-r border-gray-200 md:fixed md:left-0 md:top-16 md:bottom-0 overflow-y-auto">
       <nav className="p-4 space-y-2">
         {menuItems.map((item) => (
           <Link

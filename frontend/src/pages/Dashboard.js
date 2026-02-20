@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import AIChat from '../components/AIChat';
 
 const Dashboard = () => {
@@ -45,6 +46,22 @@ const Dashboard = () => {
     },
   ];
 
+  const skillDistribution = [
+    { label: 'Python', value: 42 },
+    { label: 'React', value: 36 },
+    { label: 'SQL', value: 30 },
+    { label: 'AWS', value: 22 },
+    { label: 'NLP', value: 18 },
+  ];
+
+  const matchTrends = [
+    { label: 'Mon', value: 62 },
+    { label: 'Tue', value: 70 },
+    { label: 'Wed', value: 58 },
+    { label: 'Thu', value: 76 },
+    { label: 'Fri', value: 68 },
+  ];
+
   return (
     <div className="space-y-6">
       <div>
@@ -76,7 +93,10 @@ const Dashboard = () => {
       <div className="bg-white rounded-lg shadow-soft p-6">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Quick Actions</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-all">
+          <Link
+            to="/upload"
+            className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-all"
+          >
             <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
@@ -84,9 +104,12 @@ const Dashboard = () => {
               <p className="font-medium text-gray-900">Upload Resumes</p>
               <p className="text-sm text-gray-500">Add new candidates</p>
             </div>
-          </button>
+          </Link>
 
-          <button className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-all">
+          <Link
+            to="/search"
+            className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-all"
+          >
             <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
@@ -94,9 +117,12 @@ const Dashboard = () => {
               <p className="font-medium text-gray-900">Search Candidates</p>
               <p className="text-sm text-gray-500">Find the perfect match</p>
             </div>
-          </button>
+          </Link>
 
-          <button className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-all">
+          <Link
+            to="/automation"
+            className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-all"
+          >
             <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
@@ -104,7 +130,45 @@ const Dashboard = () => {
               <p className="font-medium text-gray-900">Email Automation</p>
               <p className="text-sm text-gray-500">Reach out to candidates</p>
             </div>
-          </button>
+          </Link>
+        </div>
+      </div>
+
+      {/* Analytics */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-lg shadow-soft p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Skill Distribution</h2>
+          <div className="space-y-3">
+            {skillDistribution.map((skill) => (
+              <div key={skill.label} className="flex items-center gap-3">
+                <span className="w-20 text-sm text-gray-600">{skill.label}</span>
+                <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary-500"
+                    style={{ width: `${skill.value}%` }}
+                  />
+                </div>
+                <span className="w-10 text-sm text-gray-500 text-right">{skill.value}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-soft p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Match Score Trend</h2>
+          <div className="flex items-end gap-3 h-40">
+            {matchTrends.map((day) => (
+              <div key={day.label} className="flex-1 flex flex-col items-center gap-2">
+                <div className="w-full bg-primary-100 rounded-md flex items-end">
+                  <div
+                    className="w-full bg-primary-600 rounded-md"
+                    style={{ height: `${day.value}%` }}
+                  />
+                </div>
+                <span className="text-xs text-gray-500">{day.label}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -114,9 +178,12 @@ const Dashboard = () => {
         <p className="text-gray-600 mb-4">
           Start by uploading candidate resumes. Our AI will parse and extract key information automatically.
         </p>
-        <button className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors">
+        <Link
+          to="/upload"
+          className="inline-flex items-center px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
+        >
           Upload Your First Resume
-        </button>
+        </Link>
       </div>
 
       <AIChat />

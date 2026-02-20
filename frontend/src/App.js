@@ -15,8 +15,8 @@ function App() {
         <Header />
         <Sidebar />
         
-        <main className="ml-64 pt-16 min-h-screen">
-          <div className="p-8">
+        <main className="pt-16 min-h-screen md:ml-64">
+          <div className="p-4 sm:p-6 lg:p-8">
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/upload" element={<UploadResumes />} />

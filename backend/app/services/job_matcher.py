@@ -127,27 +127,38 @@ def calculate_match_scores(
         required_skills = requirements.get('required_skills', [])
         min_experience = int(requirements.get('min_experience', 0) or 0)
 
-        summary_scores = []
+        summary_scores = calculate_summary_similarity(job_description, candidates)
+        semantic_scores = []
         if use_semantic:
-            summary_scores = calculate_semantic_similarity(job_description, candidates)
-
-        if not summary_scores:
-            summary_scores = calculate_summary_similarity(job_description, candidates)
+            semantic_scores = calculate_semantic_similarity(job_description, candidates)
 
         ranked_candidates: List[Dict[str, Any]] = []
         for index, candidate in enumerate(candidates):
             skills_score = calculate_skill_score(required_skills, candidate.get('skills', []))
             experience_score = calculate_experience_score(min_experience, candidate.get('experience_years', 0))
             summary_similarity_score = summary_scores[index] if index < len(summary_scores) else 0.0
-            final_score = calculate_final_score(skills_score, experience_score, summary_similarity_score)
+            semantic_score = semantic_scores[index] if index < len(semantic_scores) else 0.0
+            final_similarity = semantic_score if semantic_scores else summary_similarity_score
+            final_score = calculate_final_score(skills_score, experience_score, final_similarity)
+
+            reasoning = _build_reasoning(
+                required_skills,
+                candidate.get('skills', []),
+                experience_score,
+                summary_similarity_score,
+                semantic_score,
+                use_semantic
+            )
 
             candidate_with_score = dict(candidate)
             candidate_with_score['match_score'] = final_score
             candidate_with_score['score_breakdown'] = {
                 'skills_score': round(float(skills_score), 4),
                 'experience_score': round(float(experience_score), 4),
-                'summary_similarity': round(float(summary_similarity_score), 4)
+                'summary_similarity': round(float(summary_similarity_score), 4),
+                'semantic_score': round(float(semantic_score), 4)
             }
+            candidate_with_score['score_reasoning'] = reasoning
             ranked_candidates.append(candidate_with_score)
 
         ranked_candidates.sort(
@@ -159,6 +170,30 @@ def calculate_match_scores(
     except Exception:
         logger.exception("event=job_matching_failed")
         return candidates
+
+
+def _build_reasoning(
+    required_skills: List[str],
+    candidate_skills: List[Any],
+    experience_score: float,
+    summary_similarity: float,
+    semantic_score: float,
+    use_semantic: bool
+) -> List[str]:
+    reasons: List[str] = []
+    required_set = {skill.strip().lower() for skill in required_skills if isinstance(skill, str) and skill.strip()}
+    candidate_set = {str(skill).strip().lower() for skill in candidate_skills if str(skill).strip()}
+    matched = sorted(required_set.intersection(candidate_set))
+
+    if matched:
+        reasons.append(f"Matched skills: {', '.join(matched[:6])}")
+
+    reasons.append(f"Experience fit score: {round(float(experience_score), 2)}")
+    reasons.append(f"Summary similarity: {round(float(summary_similarity), 2)}")
+    if use_semantic:
+        reasons.append(f"Semantic similarity: {round(float(semantic_score), 2)}")
+
+    return reasons
 
 
 def _get_embedding_model():

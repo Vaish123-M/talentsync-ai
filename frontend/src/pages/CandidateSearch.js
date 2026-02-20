@@ -1,10 +1,16 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const CandidateSearch = () => {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
+  const [compareIds, setCompareIds] = useState([]);
+
+  const compareCandidates = useMemo(
+    () => results.filter((candidate) => compareIds.includes(candidate.id)),
+    [compareIds, results]
+  );
 
   const handleSearch = () => {
     // Placeholder for future implementation
@@ -20,6 +26,17 @@ const CandidateSearch = () => {
           skills: ['React', 'Node.js', 'Python', 'AWS'],
           experience: '5 years',
           status: 'New',
+          score_breakdown: {
+            skills_score: 0.92,
+            experience_score: 0.9,
+            summary_similarity: 0.85,
+            semantic_score: 0.88,
+          },
+          score_reasoning: [
+            'Matched skills: react, python, aws',
+            'Experience fit score: 0.9',
+            'Semantic similarity: 0.88',
+          ],
         },
         {
           id: 2,
@@ -28,9 +45,32 @@ const CandidateSearch = () => {
           skills: ['React', 'TypeScript', 'GraphQL'],
           experience: '3 years',
           status: 'Contacted',
+          score_breakdown: {
+            skills_score: 0.86,
+            experience_score: 0.7,
+            summary_similarity: 0.82,
+            semantic_score: 0.8,
+          },
+          score_reasoning: [
+            'Matched skills: react, graphql',
+            'Experience fit score: 0.7',
+            'Semantic similarity: 0.8',
+          ],
         },
       ]);
     }, 1500);
+  };
+
+  const toggleCompare = (candidateId) => {
+    setCompareIds((prev) => {
+      if (prev.includes(candidateId)) {
+        return prev.filter((id) => id !== candidateId);
+      }
+      if (prev.length >= 2) {
+        return [prev[1], candidateId];
+      }
+      return [...prev, candidateId];
+    });
   };
 
   return (
@@ -140,6 +180,33 @@ const CandidateSearch = () => {
             </h2>
           </div>
 
+          {compareCandidates.length === 2 && (
+            <div className="p-6 border-b border-gray-200 bg-gray-50">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Candidate Comparison</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {compareCandidates.map((candidate) => (
+                  <div key={candidate.id} className="bg-white border border-gray-200 rounded-lg p-4">
+                    <p className="font-semibold text-gray-900 mb-2">{candidate.name}</p>
+                    <p className="text-sm text-gray-600">Match Score: {candidate.matchScore}%</p>
+                    <div className="mt-3 text-xs text-gray-600 space-y-1">
+                      <p>Skills: {candidate.score_breakdown?.skills_score ?? 'N/A'}</p>
+                      <p>Experience: {candidate.score_breakdown?.experience_score ?? 'N/A'}</p>
+                      <p>Summary: {candidate.score_breakdown?.summary_similarity ?? 'N/A'}</p>
+                      <p>Semantic: {candidate.score_breakdown?.semantic_score ?? 'N/A'}</p>
+                    </div>
+                    {candidate.score_reasoning && (
+                      <ul className="mt-3 text-xs text-gray-600 list-disc pl-4">
+                        {candidate.score_reasoning.map((reason, index) => (
+                          <li key={index}>{reason}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50">
@@ -228,6 +295,16 @@ const CandidateSearch = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <button className="text-primary-600 hover:text-primary-900 font-medium">
                         View Profile
+                      </button>
+                      <button
+                        onClick={() => toggleCompare(candidate.id)}
+                        className={`ml-4 text-sm font-medium ${
+                          compareIds.includes(candidate.id)
+                            ? 'text-primary-700'
+                            : 'text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        {compareIds.includes(candidate.id) ? 'Selected' : 'Compare'}
                       </button>
                     </td>
                   </tr>

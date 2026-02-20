@@ -1,7 +1,7 @@
 import React from 'react';
 
 const CandidateCard = ({ candidate }) => {
-  const { name, skills, experience_years, summary } = candidate;
+  const { name, skills, experience_years, summary, match_score, score_breakdown, score_reasoning } = candidate;
 
   return (
     <div className="bg-white rounded-lg shadow-soft p-6 hover:shadow-lg transition-shadow">
@@ -49,6 +49,30 @@ const CandidateCard = ({ candidate }) => {
         <div className="mb-4">
           <h4 className="text-xs font-semibold text-gray-700 uppercase mb-2">Experience</h4>
           <p className="text-sm text-gray-600">{experience_years} year(s)</p>
+        </div>
+      )}
+
+      {(typeof match_score === 'number' || score_breakdown) && (
+        <div className="mb-4">
+          <h4 className="text-xs font-semibold text-gray-700 uppercase mb-2">Match</h4>
+          {typeof match_score === 'number' && (
+            <p className="text-sm text-gray-600">Overall score: {match_score}</p>
+          )}
+          {score_breakdown && (
+            <div className="mt-2 text-xs text-gray-600 space-y-1">
+              <p>Skills: {score_breakdown.skills_score ?? 0}</p>
+              <p>Experience: {score_breakdown.experience_score ?? 0}</p>
+              <p>Summary: {score_breakdown.summary_similarity ?? 0}</p>
+              <p>Semantic: {score_breakdown.semantic_score ?? 0}</p>
+            </div>
+          )}
+          {score_reasoning && score_reasoning.length > 0 && (
+            <ul className="mt-2 text-xs text-gray-600 list-disc pl-4">
+              {score_reasoning.map((reason, index) => (
+                <li key={index}>{reason}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 

@@ -185,9 +185,10 @@ def test_upload_with_job_description_returns_ranked_candidates(client, monkeypat
 	assert all(candidate['match_score'] is not None for candidate in candidates)
 	assert candidates[0]['match_score'] >= candidates[1]['match_score']
 	assert 'score_breakdown' in candidates[0]
-	assert {'skills_score', 'experience_score', 'summary_similarity'} == set(
-		candidates[0]['score_breakdown'].keys()
+	assert {'skills_score', 'experience_score', 'summary_similarity', 'semantic_score'}.issubset(
+		set(candidates[0]['score_breakdown'].keys())
 	)
+	assert 'score_reasoning' in candidates[0]
 
 
 def test_upload_with_semantic_flag_uses_semantic_similarity(client, monkeypatch):
@@ -230,6 +231,10 @@ def test_upload_with_semantic_flag_uses_semantic_similarity(client, monkeypatch)
 	assert len(candidates) == 2
 	assert candidates[0]['match_score'] >= candidates[1]['match_score']
 	assert all(candidate['match_score'] is not None for candidate in candidates)
+	assert 'score_breakdown' in candidates[0]
+	assert {'skills_score', 'experience_score', 'summary_similarity', 'semantic_score'}.issubset(
+		set(candidates[0]['score_breakdown'].keys())
+	)
 
 
 def test_vector_indexing_after_upload_and_metadata_integrity(client, monkeypatch):
