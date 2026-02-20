@@ -8,6 +8,7 @@ from werkzeug.utils import secure_filename
 from werkzeug.datastructures import FileStorage
 
 from app.utils.pdf_extractor import PDFExtractor
+from app.services.job_matcher import calculate_match_scores
 
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,11 @@ class ResumeService:
         # Ensure upload folder exists
         os.makedirs(upload_folder, exist_ok=True)
     
-    def process_uploaded_resumes(self, files: List[FileStorage]) -> Dict[str, Any]:
+    def process_uploaded_resumes(
+        self,
+        files: List[FileStorage],
+        job_description: str = ''
+    ) -> Dict[str, Any]:
         """
         Process multiple uploaded resume files through the complete pipeline.
         
@@ -70,6 +75,11 @@ class ResumeService:
                 })
 
         if candidates:
+            if job_description and job_description.strip():
+                logger.info("event=resume_matching_started candidate_count=%s", len(candidates))
+                ranked_candidates = calculate_match_scores(job_description, candidates)
+                candidates = ranked_candidates
+
             logger.info(
                 "event=resume_upload_completed processed=%s failed=%s",
                 len(candidates),

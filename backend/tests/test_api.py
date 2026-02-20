@@ -8,6 +8,18 @@ class FakeParser:
 	"""Deterministic parser stub for upload pipeline tests."""
 
 	def parse_resume(self, resume_text):
+		if 'frontend' in resume_text.lower():
+			return {
+				'success': True,
+				'error': None,
+				'data': {
+					'name': 'Alex Frontend',
+					'professional_summary': 'Frontend engineer building React interfaces.',
+					'experience_years': 2,
+					'skills': ['React', 'CSS', 'UI']
+				}
+			}
+
 		return {
 			'success': True,
 			'error': None,
@@ -87,3 +99,50 @@ def test_upload_rejects_invalid_file_type(client):
 	payload = response.get_json()
 	assert payload['status'] == 'error'
 	assert payload['message'] == 'Invalid file type. Only PDF files are accepted.'
+
+
+def test_upload_with_job_description_returns_ranked_candidates(client, monkeypatch):
+	"""Upload endpoint ranks candidates by TF-IDF similarity when job_description is provided."""
+	monkeypatch.setattr(resume_service_module, 'get_resume_parser', lambda: FakeParser())
+
+	def fake_extractor(file_path):
+		if 'frontend' in file_path.lower():
+			return {
+				'success': True,
+				'text': 'Frontend resume with React CSS design experience',
+				'pages': 1,
+				'error': None
+			}
+
+		return {
+			'success': True,
+			'text': 'Backend resume with Python Flask SQL APIs',
+			'pages': 1,
+			'error': None
+		}
+
+	monkeypatch.setattr(
+		resume_service_module.PDFExtractor,
+		'extract_text_from_file',
+		staticmethod(fake_extractor)
+	)
+
+	response = client.post(
+		'/api/resumes/upload',
+		data={
+			'job_description': 'Looking for Python backend developer with Flask and SQL experience',
+			'files': [
+				(io.BytesIO(b'%PDF-1.4 sample backend'), 'backend.pdf'),
+				(io.BytesIO(b'%PDF-1.4 sample frontend'), 'frontend.pdf')
+			]
+		},
+		content_type='multipart/form-data'
+	)
+
+	assert response.status_code == 200
+	payload = response.get_json()
+	assert payload['status'] == 'success'
+	candidates = payload['candidates']
+	assert len(candidates) == 2
+	assert all(candidate['match_score'] is not None for candidate in candidates)
+	assert candidates[0]['match_score'] >= candidates[1]['match_score']

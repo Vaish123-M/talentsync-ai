@@ -46,10 +46,15 @@ def upload_resumes():
             return jsonify(build_error_response('No files selected for upload.')), 400
         
         logger.info("event=upload_request_received file_count=%s", len(uploaded_files))
+
+        job_description = request.form.get('job_description', '').strip()
         
         # Process resumes through the service layer
         resume_service = get_resume_service()
-        result = resume_service.process_uploaded_resumes(uploaded_files)
+        result = resume_service.process_uploaded_resumes(
+            uploaded_files,
+            job_description=job_description
+        )
         
         if result.get('status') == 'success':
             for candidate in result.get('candidates', []):
