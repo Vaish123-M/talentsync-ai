@@ -9,6 +9,7 @@ from werkzeug.utils import secure_filename
 from werkzeug.datastructures import FileStorage
 
 from app.utils.pdf_extractor import PDFExtractor
+from app.utils.resume_format_handler import ResumeFormatHandler
 from app.services.job_matcher import calculate_match_scores
 
 
@@ -188,26 +189,47 @@ class ResumeService:
                 'error': f'Failed to save file: {str(e)}'
             }
         
-        # Step 3: Extract text from PDF
+        # Step 3: Extract text from file (PDF or DOCX)
         try:
-            extraction_result = self.pdf_extractor.extract_text_from_file(saved_path)
+            file_ext = Path(filename).suffix.lower()
             
-            if not extraction_result['success']:
+            if file_ext == '.pdf':
+                extraction_result = self.pdf_extractor.extract_text_from_file(saved_path)
+                if not extraction_result['success']:
+                    return {
+                        'success': False,
+                        'filename': filename,
+                        'saved_path': saved_path,
+                        'error': f"Text extraction failed: {extraction_result['error']}"
+                    }
+                extracted_text = extraction_result['text']
+                page_count = extraction_result['pages']
+                logger.debug(
+                    "event=resume_text_extracted filename=%s pages=%s text_length=%s",
+                    filename,
+                    page_count,
+                    len(extracted_text)
+                )
+            elif file_ext in {'.docx', '.doc'}:
+                extracted_text = ResumeFormatHandler.extract_from_docx(saved_path)
+                if not extracted_text:
+                    return {
+                        'success': False,
+                        'filename': filename,
+                        'saved_path': saved_path,
+                        'error': "DOCX extraction failed or file is empty"
+                    }
+                logger.debug(
+                    "event=resume_text_extracted filename=%s format=docx text_length=%s",
+                    filename,
+                    len(extracted_text)
+                )
+            else:
                 return {
                     'success': False,
                     'filename': filename,
-                    'saved_path': saved_path,
-                    'error': f"Text extraction failed: {extraction_result['error']}"
+                    'error': 'Unsupported file format'
                 }
-            
-            extracted_text = extraction_result['text']
-            page_count = extraction_result['pages']
-            logger.debug(
-                "event=resume_text_extracted filename=%s pages=%s text_length=%s",
-                filename,
-                page_count,
-                len(extracted_text)
-            )
             
         except Exception as e:
             logger.exception("event=resume_text_extraction_failed filename=%s", filename)
@@ -249,6 +271,122 @@ class ResumeService:
         # Step 5: Return complete result
         return {
             'success': True,
+            'candidate': candidate
+        }
+
+    def process_raw_text(
+        self,
+        text: str,
+        job_description: str = '',
+        recruiter_id: str = 'default',
+        vector_search_service: Any = None,
+        source_type: str = 'unknown'
+    ) -> Dict[str, Any]:
+        """
+        Process raw text (from URLs or other sources) through the parsing pipeline.
+        
+        This is similar to _process_single_resume but works with pre-extracted text
+        instead of uploaded files.
+        
+        Args:
+            text: Raw candidate text extracted from LinkedIn, GitHub, etc.
+            job_description: Optional job description for matching
+            recruiter_id: ID of the recruiter (for multi-tenancy)
+            vector_search_service: Optional vector search service for indexing
+            source_type: Type of source (e.g., 'urls', 'linkedin', 'github')
+            
+        Returns:
+            Dictionary containing parsed candidate data and indexing status
+        """
+        if not text or not text.strip():
+            return {
+                'status': 'error',
+                'message': 'No text provided for parsing',
+                'candidate': None
+            }
+        
+        self.vector_search_service = vector_search_service
+        
+        logger.info(
+            "event=raw_text_processing_started source_type=%s text_length=%s",
+            source_type,
+            len(text)
+        )
+        
+        # Step 1: Parse text using AI
+        try:
+            if self.resume_parser is None:
+                self.resume_parser = get_resume_parser()
+            
+            parse_result = self.resume_parser.parse_resume(text)
+            
+            if not parse_result['success']:
+                logger.error(
+                    "event=raw_text_parsing_failed source_type=%s error=%s",
+                    source_type,
+                    parse_result.get('error', 'Unknown error')
+                )
+                return {
+                    'status': 'error',
+                    'message': f"Resume parsing failed: {parse_result['error']}",
+                    'candidate': None
+                }
+            
+            candidate_data = parse_result['data']
+            
+            # Use source type as fallback filename for naming
+            source_name = f"{source_type}_candidate"
+            candidate = self._to_candidate_payload(source_name, candidate_data)
+            
+            logger.debug(
+                "event=raw_text_parsed source_type=%s candidate_name=%s",
+                source_type,
+                candidate.get('name')
+            )
+            
+        except Exception as e:
+            logger.exception("event=raw_text_parsing_error source_type=%s", source_type)
+            return {
+                'status': 'error',
+                'message': f'Resume parsing error: {str(e)}',
+                'candidate': None
+            }
+        
+        # Step 2: Index candidate if vector search is enabled
+        if self.vector_search_service is not None:
+            try:
+                indexed_count = self.vector_search_service.index_candidates(
+                    [candidate],
+                    recruiter_id=recruiter_id or 'default'
+                )
+                logger.info(
+                    "event=raw_text_indexing_completed source_type=%s indexed_count=%s",
+                    source_type,
+                    indexed_count
+                )
+            except Exception:
+                logger.exception("event=raw_text_indexing_failed source_type=%s", source_type)
+        
+        # Step 3: Calculate match score if job description provided
+        if job_description and job_description.strip():
+            try:
+                ranked_candidates = calculate_match_scores(
+                    job_description,
+                    [candidate],
+                    use_semantic=True
+                )
+                if ranked_candidates:
+                    candidate = ranked_candidates[0]
+                logger.info(
+                    "event=raw_text_matching_completed source_type=%s match_score=%s",
+                    source_type,
+                    candidate.get('match_score')
+                )
+            except Exception:
+                logger.exception("event=raw_text_matching_failed source_type=%s", source_type)
+        
+        return {
+            'status': 'success',
             'candidate': candidate
         }
 
@@ -352,7 +490,8 @@ class ResumeService:
         if not filename:
             return False
         
-        return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'pdf'
+        ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+        return ext in {'pdf', 'docx', 'doc'}
     
     def get_upload_folder(self) -> str:
         """Get the upload folder path."""

@@ -6,6 +6,7 @@ import logging
 from app.services.resume_service import ResumeService
 from app.services.vector_search_service import get_vector_search_service
 from app.utils.validators import build_error_response, validate_candidate_contract
+from app.utils.resume_format_handler import ResumeFormatHandler
 
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,102 @@ def health_check():
             'status': 'unhealthy',
             'error': str(e)
         }), 500
+
+
+@resume_bp.route('/parse-url', methods=['POST'])
+def parse_profile_url():
+    """
+    Parse candidate profiles from LinkedIn, GitHub URLs or DOCX files.
+    
+    Accepts JSON payload with:
+    - linkedin_url: LinkedIn profile URL (e.g., https://linkedin.com/in/username)
+    - github_url: GitHub profile URL (e.g., https://github.com/username)
+    
+    Returns: Parsed candidate data (skills, experience, projects, etc.)
+    """
+    try:
+        payload = request.get_json(silent=True) or {}
+        linkedin_url = str(payload.get('linkedin_url', '')).strip()
+        github_url = str(payload.get('github_url', '')).strip()
+        job_description = str(payload.get('job_description', '')).strip()
+        recruiter_id = str(payload.get('recruiter_id', 'default')).strip() or 'default'
+        
+        # Validate that at least one URL is provided
+        if not linkedin_url and not github_url:
+            return jsonify(build_error_response(
+                'At least one of linkedin_url or github_url is required.'
+            )), 400
+        
+        logger.info(
+            "event=parse_url_request has_linkedin=%s has_github=%s",
+            bool(linkedin_url),
+            bool(github_url)
+        )
+        
+        resume_service = get_resume_service()
+        vector_service = get_vector_service()
+        
+        # Parse URLs using format handler
+        extracted_data = {}
+        
+        if linkedin_url:
+            linkedin_text = ResumeFormatHandler.extract_from_linkedin(linkedin_url)
+            if linkedin_text:
+                extracted_data['linkedin_profile'] = linkedin_text
+                logger.info("event=linkedin_parsing_success")
+            else:
+                logger.warning("event=linkedin_parsing_failed url=%s", linkedin_url)
+        
+        if github_url:
+            github_text = ResumeFormatHandler.extract_from_github(github_url)
+            if github_text:
+                extracted_data['github_profile'] = github_text
+                logger.info("event=github_parsing_success")
+            else:
+                logger.warning("event=github_parsing_failed url=%s", github_url)
+        
+        if not extracted_data:
+            return jsonify(build_error_response(
+                'Failed to extract data from provided URLs. URLs may be invalid or inaccessible.'
+            )), 422
+        
+        # Combine extracted data for processing
+        combined_text = '\n'.join(extracted_data.values())
+        
+        # Process through resume service pipeline
+        result = resume_service.process_raw_text(
+            text=combined_text,
+            job_description=job_description,
+            recruiter_id=recruiter_id,
+            vector_search_service=vector_service,
+            source_type='urls'
+        )
+        
+        if result.get('status') == 'success':
+            candidate = result.get('candidate', {})
+            is_valid, validation_error = validate_candidate_contract(candidate)
+            if not is_valid:
+                logger.error(
+                    "event=parse_url_response_validation_failed error=%s",
+                    validation_error
+                )
+                return jsonify(build_error_response('Internal response validation failed.')), 500
+            
+            return jsonify({
+                'status': 'success',
+                'candidate': candidate,
+                'sources': list(extracted_data.keys())
+            }), 200
+        
+        return jsonify(build_error_response(
+            result.get('message', 'Failed to parse candidate profile')
+        )), 422
+        
+    except Exception as e:
+        logger.exception("event=parse_url_endpoint_error")
+        return jsonify(build_error_response(
+            'An error occurred while parsing the profile URL.'
+        )), 500
 
 
 @resume_bp.route('/semantic-search', methods=['POST'])
