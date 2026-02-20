@@ -1,20 +1,41 @@
-"""AI module tests."""
+"""AI and matching module tests."""
 
-from app.ai.job_matcher import calculate_match_score
+from app.services.job_matcher import (
+	calculate_experience_score,
+	calculate_final_score,
+	calculate_skill_score,
+)
+from app.services.job_requirements_parser import parse_job_requirements
 
 
-def test_calculate_match_score_returns_float():
-	"""Job matcher scaffold returns float output."""
-	score = calculate_match_score(
-		job_description='Looking for a Python backend developer with Flask experience.',
-		resume_text='Built REST APIs using Flask and Python for 4 years.'
+def test_weighted_final_score_formula():
+	"""Final score follows weighted formula with expected precision."""
+	final_score = calculate_final_score(0.8, 0.5, 0.6)
+	assert final_score == 0.68
+
+
+def test_skill_score_overlap():
+	"""Skill score computes overlap ratio of required skills."""
+	score = calculate_skill_score(
+		required_skills=['python', 'flask', 'sql'],
+		candidate_skills=['Python', 'Flask']
+	)
+	assert score == (2 / 3)
+
+
+def test_experience_score_ratio():
+	"""Experience score scales when candidate is below requirement."""
+	score = calculate_experience_score(min_experience=4, candidate_experience=2)
+	assert score == 0.5
+
+
+def test_job_requirements_parser_extracts_structure():
+	"""Job requirements parser extracts skills and min experience."""
+	requirements = parse_job_requirements(
+		'Looking for Python Flask engineer with SQL and minimum 3 years experience in backend APIs.'
 	)
 
-	assert isinstance(score, float)
-	assert score == 0.0
-
-
-def test_calculate_match_score_handles_empty_inputs():
-	"""Job matcher scaffold gracefully handles empty content."""
-	assert calculate_match_score('', 'resume') == 0.0
-	assert calculate_match_score('job', '') == 0.0
+	assert 'python' in requirements['required_skills']
+	assert 'flask' in requirements['required_skills']
+	assert requirements['min_experience'] == 3
+	assert isinstance(requirements['keywords'], list)

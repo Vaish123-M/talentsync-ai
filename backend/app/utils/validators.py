@@ -58,4 +58,22 @@ def validate_candidate_contract(candidate: Dict[str, Any]) -> Tuple[bool, Option
 	if match_score is not None and not isinstance(match_score, (int, float)):
 		return False, 'Candidate match_score must be null or a number'
 
+	score_breakdown = candidate.get('score_breakdown')
+	if score_breakdown is not None:
+		if not isinstance(score_breakdown, dict):
+			return False, 'Candidate score_breakdown must be an object when provided'
+
+		expected_breakdown_keys = {'skills_score', 'experience_score', 'summary_similarity'}
+		missing_breakdown_keys = expected_breakdown_keys.difference(score_breakdown.keys())
+		if missing_breakdown_keys:
+			return False, (
+				'Candidate score_breakdown missing required keys: '
+				f"{', '.join(sorted(missing_breakdown_keys))}"
+			)
+
+		for key in expected_breakdown_keys:
+			value = score_breakdown.get(key)
+			if not isinstance(value, (int, float)):
+				return False, f'Candidate score_breakdown.{key} must be a number'
+
 	return True, None

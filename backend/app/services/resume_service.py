@@ -40,7 +40,8 @@ class ResumeService:
     def process_uploaded_resumes(
         self,
         files: List[FileStorage],
-        job_description: str = ''
+        job_description: str = '',
+        use_semantic: bool = False
     ) -> Dict[str, Any]:
         """
         Process multiple uploaded resume files through the complete pipeline.
@@ -76,8 +77,16 @@ class ResumeService:
 
         if candidates:
             if job_description and job_description.strip():
-                logger.info("event=resume_matching_started candidate_count=%s", len(candidates))
-                ranked_candidates = calculate_match_scores(job_description, candidates)
+                logger.info(
+                    "event=resume_matching_started candidate_count=%s use_semantic=%s",
+                    len(candidates),
+                    use_semantic
+                )
+                ranked_candidates = calculate_match_scores(
+                    job_description,
+                    candidates,
+                    use_semantic=use_semantic
+                )
                 candidates = ranked_candidates
 
             logger.info(

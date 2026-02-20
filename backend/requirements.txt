@@ -20,6 +20,7 @@ pypdf==3.17.4
 openai==1.7.2
 tiktoken==0.5.2
 scikit-learn==1.5.2
+sentence-transformers==3.1.1
 
 # WSGI Server for Production
 gunicorn==21.2.0

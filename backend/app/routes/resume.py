@@ -48,12 +48,15 @@ def upload_resumes():
         logger.info("event=upload_request_received file_count=%s", len(uploaded_files))
 
         job_description = request.form.get('job_description', '').strip()
+        use_semantic_raw = request.form.get('use_semantic', '').strip().lower()
+        use_semantic = use_semantic_raw in {'1', 'true', 'yes', 'on'}
         
         # Process resumes through the service layer
         resume_service = get_resume_service()
         result = resume_service.process_uploaded_resumes(
             uploaded_files,
-            job_description=job_description
+            job_description=job_description,
+            use_semantic=use_semantic
         )
         
         if result.get('status') == 'success':

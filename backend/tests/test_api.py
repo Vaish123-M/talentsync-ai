@@ -1,6 +1,7 @@
 """API endpoint tests."""
 import io
 
+from app.services import job_matcher as job_matcher_module
 from app.services import resume_service as resume_service_module
 
 
@@ -71,14 +72,9 @@ def test_upload_resumes_returns_standardized_contract(client, monkeypatch):
 	assert len(payload['candidates']) == 1
 
 	candidate = payload['candidates'][0]
-	assert set(candidate.keys()) == {
-		'id',
-		'name',
-		'summary',
-		'experience_years',
-		'skills',
-		'match_score'
-	}
+	assert {'id', 'name', 'summary', 'experience_years', 'skills', 'match_score'}.issubset(
+		set(candidate.keys())
+	)
 	assert isinstance(candidate['id'], str)
 	assert isinstance(candidate['name'], str)
 	assert isinstance(candidate['summary'], str)
@@ -146,3 +142,49 @@ def test_upload_with_job_description_returns_ranked_candidates(client, monkeypat
 	assert len(candidates) == 2
 	assert all(candidate['match_score'] is not None for candidate in candidates)
 	assert candidates[0]['match_score'] >= candidates[1]['match_score']
+	assert 'score_breakdown' in candidates[0]
+	assert {'skills_score', 'experience_score', 'summary_similarity'} == set(
+		candidates[0]['score_breakdown'].keys()
+	)
+
+
+def test_upload_with_semantic_flag_uses_semantic_similarity(client, monkeypatch):
+	"""Semantic toggle enables embedding similarity path and keeps sorted output."""
+	monkeypatch.setattr(resume_service_module, 'get_resume_parser', lambda: FakeParser())
+	monkeypatch.setattr(
+		resume_service_module.PDFExtractor,
+		'extract_text_from_file',
+		staticmethod(lambda _file_path: {
+			'success': True,
+			'text': 'Backend resume with Python Flask SQL APIs',
+			'pages': 1,
+			'error': None
+		})
+	)
+
+	monkeypatch.setattr(
+		job_matcher_module,
+		'calculate_semantic_similarity',
+		lambda _job_description, _candidates: [0.3, 0.9]
+	)
+
+	response = client.post(
+		'/api/resumes/upload',
+		data={
+			'job_description': 'Need backend API engineer',
+			'use_semantic': 'true',
+			'files': [
+				(io.BytesIO(b'%PDF-1.4 sample backend one'), 'backend_one.pdf'),
+				(io.BytesIO(b'%PDF-1.4 sample backend two'), 'backend_two.pdf')
+			]
+		},
+		content_type='multipart/form-data'
+	)
+
+	assert response.status_code == 200
+	payload = response.get_json()
+	assert payload['status'] == 'success'
+	candidates = payload['candidates']
+	assert len(candidates) == 2
+	assert candidates[0]['match_score'] >= candidates[1]['match_score']
+	assert all(candidate['match_score'] is not None for candidate in candidates)
