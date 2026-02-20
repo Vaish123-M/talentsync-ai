@@ -19,6 +19,7 @@ export const resumeService = {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
+        timeout: 180000,
         onUploadProgress: (progressEvent) => {
           if (!progressEvent.total) {
             return;
@@ -35,7 +36,20 @@ export const resumeService = {
 
       return response.data;
     } catch (error) {
-      const message = error?.response?.data?.message || 'Failed to upload resumes';
+      let message = error?.response?.data?.message;
+
+      if (!message && error?.code === 'ECONNABORTED') {
+        message = 'Upload timed out. Please try fewer/smaller files or retry.';
+      }
+
+      if (!message && error?.message) {
+        message = error.message;
+      }
+
+      if (!message) {
+        message = 'Failed to upload resumes';
+      }
+
       throw new Error(message);
     }
   },
