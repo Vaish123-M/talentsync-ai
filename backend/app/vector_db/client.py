@@ -61,3 +61,24 @@ class VectorDBClient:
 			n_results=max(1, int(top_k)),
 			where=where
 		)
+
+	def get(
+		self,
+		where: Optional[Dict[str, Any]] = None,
+		limit: Optional[int] = None
+	) -> Dict[str, Any]:
+		"""Retrieve vectors/documents by optional metadata filter."""
+		if not self.is_available:
+			return {
+				'ids': [],
+				'metadatas': [],
+				'documents': []
+			}
+
+		kwargs: Dict[str, Any] = {}
+		if where:
+			kwargs['where'] = where
+		if isinstance(limit, int) and limit > 0:
+			kwargs['limit'] = limit
+
+		return self._collection.get(**kwargs)

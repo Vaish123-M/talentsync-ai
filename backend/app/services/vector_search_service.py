@@ -101,10 +101,12 @@ class VectorSearchService:
         ids = raw.get('ids', [[]])[0]
         distances = raw.get('distances', [[]])[0]
         metadatas = raw.get('metadatas', [[]])[0]
+        documents = raw.get('documents', [[]])[0]
 
         results = []
         for index, candidate_id in enumerate(ids):
             metadata = metadatas[index] if index < len(metadatas) else {}
+            document = documents[index] if index < len(documents) else ''
             distance = float(distances[index]) if index < len(distances) else 1.0
             match_score = round(max(0.0, 1.0 - distance), 4)
 
@@ -114,7 +116,7 @@ class VectorSearchService:
             results.append({
                 'id': str(metadata.get('candidate_id', candidate_id)),
                 'name': str(metadata.get('name', '')),
-                'summary': '',
+                'summary': str(document or ''),
                 'experience_years': float(metadata.get('experience_years', 0) or 0),
                 'skills': skills,
                 'match_score': match_score,
@@ -147,6 +149,78 @@ class VectorSearchService:
                 'candidates': candidates
             })
         return payload
+
+    def find_candidate_by_name(self, recruiter_id: str, candidate_name: str) -> Optional[Dict[str, Any]]:
+        """Find an indexed candidate by name for similarity recommendations."""
+        if not self.enabled or not candidate_name:
+            return None
+
+        if not self.client.is_available:
+            return None
+
+        try:
+            raw = self.client.get(where={'recruiter_id': recruiter_id}, limit=500)
+        except Exception:
+            logger.exception("event=vector_get_candidate_failed")
+            return None
+
+        names = raw.get('metadatas', []) or []
+        ids = raw.get('ids', []) or []
+        docs = raw.get('documents', []) or []
+
+        target = candidate_name.strip().lower()
+        for index, metadata in enumerate(names):
+            current_name = str((metadata or {}).get('name', '')).strip()
+            if current_name.lower() != target:
+                continue
+
+            skills_csv = str((metadata or {}).get('skills', '') or '')
+            skills = [item.strip() for item in skills_csv.split(',') if item.strip()]
+            return {
+                'id': str((metadata or {}).get('candidate_id', ids[index] if index < len(ids) else '')),
+                'name': current_name,
+                'summary': str(docs[index] if index < len(docs) else ''),
+                'experience_years': float((metadata or {}).get('experience_years', 0) or 0),
+                'skills': skills,
+                'recruiter_id': str((metadata or {}).get('recruiter_id', recruiter_id))
+            }
+
+        return None
+
+    def list_candidates(self, recruiter_id: Optional[str] = None, limit: int = 500) -> List[Dict[str, Any]]:
+        """List indexed candidates by recruiter for fallback ranking flows."""
+        if not self.enabled or not self.client.is_available:
+            return []
+
+        where = {'recruiter_id': recruiter_id} if recruiter_id else None
+        try:
+            raw = self.client.get(where=where, limit=limit)
+        except Exception:
+            logger.exception("event=vector_list_candidates_failed")
+            return []
+
+        ids = raw.get('ids', []) or []
+        metadatas = raw.get('metadatas', []) or []
+        documents = raw.get('documents', []) or []
+
+        output = []
+        for index, candidate_id in enumerate(ids):
+            metadata = metadatas[index] if index < len(metadatas) else {}
+            document = documents[index] if index < len(documents) else ''
+            skills_csv = str((metadata or {}).get('skills', '') or '')
+            skills = [item.strip() for item in skills_csv.split(',') if item.strip()]
+
+            output.append({
+                'id': str((metadata or {}).get('candidate_id', candidate_id)),
+                'name': str((metadata or {}).get('name', '')),
+                'summary': str(document or ''),
+                'experience_years': float((metadata or {}).get('experience_years', 0) or 0),
+                'skills': skills,
+                'match_score': None,
+                'recruiter_id': str((metadata or {}).get('recruiter_id', recruiter_id or ''))
+            })
+
+        return output
 
     @staticmethod
     def _build_candidate_text(candidate: Dict[str, Any]) -> str:

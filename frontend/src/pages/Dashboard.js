@@ -1,4 +1,5 @@
 import React from 'react';
+import AIChat from '../components/AIChat';
 
 const Dashboard = () => {
   const stats = [
@@ -117,6 +118,8 @@ const Dashboard = () => {
           Upload Your First Resume
         </button>
       </div>
+
+      <AIChat />
     </div>
   );
 };

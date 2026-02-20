@@ -49,6 +49,12 @@ def create_app(config_name='development'):
     app.config['VECTOR_SEARCH_ENABLED'] = os.getenv('VECTOR_SEARCH_ENABLED', 'true').lower() in {
         '1', 'true', 'yes', 'on'
     }
+    app.config['AI_ASSISTANT_ENABLED'] = os.getenv('AI_ASSISTANT_ENABLED', 'true').lower() in {
+        '1', 'true', 'yes', 'on'
+    }
+    app.config['AI_ASSISTANT_USE_OPENAI'] = os.getenv('AI_ASSISTANT_USE_OPENAI', 'false').lower() in {
+        '1', 'true', 'yes', 'on'
+    }
     
     # Ensure upload folder exists
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -99,9 +105,11 @@ def setup_logging(app):
 
 def register_blueprints(app):
     """Register Flask blueprints."""
-    from app.routes import resume_bp
+    from app.routes import assistant_bp, resume_bp
     
     app.register_blueprint(resume_bp)
+    if app.config.get('AI_ASSISTANT_ENABLED', True):
+        app.register_blueprint(assistant_bp)
 
 
 def register_routes(app):
