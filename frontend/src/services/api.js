@@ -1,8 +1,11 @@
 import axios from 'axios';
 
+const configuredApiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+const normalizedApiUrl = configuredApiUrl.replace(/\/api\/?$/, '');
+
 // Create axios instance with base configuration
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000',
+  baseURL: normalizedApiUrl,
   headers: {
     'Content-Type': 'application/json',
   },

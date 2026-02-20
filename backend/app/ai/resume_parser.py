@@ -4,15 +4,39 @@ import json
 import logging
 from typing import Dict, Optional
 from langchain_openai import ChatOpenAI
-from langchain.prompts import PromptTemplate
-from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from dotenv import load_dotenv
+
+try:
+    from langchain_core.prompts import PromptTemplate
+except ImportError:
+    from langchain.prompts import PromptTemplate
+
+try:
+    from langchain_core.output_parsers import JsonOutputParser
+except ImportError:
+    from langchain.output_parsers import JsonOutputParser
 
 
 # Load environment variables
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_langchain_globals() -> None:
+    """Ensure compatibility globals exist for mixed LangChain package installs."""
+    try:
+        import langchain
+
+        if not hasattr(langchain, 'verbose'):
+            langchain.verbose = False
+        if not hasattr(langchain, 'debug'):
+            langchain.debug = False
+        if not hasattr(langchain, 'llm_cache'):
+            langchain.llm_cache = None
+    except Exception:
+        # Do not block parser initialization if shim cannot be applied
+        pass
 
 
 class ResumeParser:
@@ -26,6 +50,7 @@ class ResumeParser:
             logger.warning("OPENAI_API_KEY not found. Parser will not function.")
             self.llm = None
         else:
+            _ensure_langchain_globals()
             # Initialize OpenAI LLM
             self.llm = ChatOpenAI(
                 model="gpt-3.5-turbo",
@@ -33,48 +58,21 @@ class ResumeParser:
                 api_key=self.api_key
             )
         
-        # Define the output schema
-        self.response_schemas = [
-            ResponseSchema(
-                name="name",
-                description="Full name of the candidate. Extract first and last name."
-            ),
-            ResponseSchema(
-                name="email",
-                description="Email address of the candidate. Return empty string if not found."
-            ),
-            ResponseSchema(
-                name="phone",
-                description="Phone number of the candidate. Return empty string if not found."
-            ),
-            ResponseSchema(
-                name="skills",
-                description="List of technical and professional skills. Return as comma-separated values."
-            ),
-            ResponseSchema(
-                name="experience_years",
-                description="Total years of professional experience as a number. If not clear, estimate based on job history."
-            ),
-            ResponseSchema(
-                name="education",
-                description="Highest education degree and institution. Format: 'Degree from Institution'."
-            ),
-            ResponseSchema(
-                name="professional_summary",
-                description="Brief professional summary (2-3 sentences) highlighting key qualifications and career focus."
-            ),
-            ResponseSchema(
-                name="current_role",
-                description="Most recent or current job title. Return empty string if not found."
-            ),
-            ResponseSchema(
-                name="location",
-                description="Current location or city. Return empty string if not found."
-            )
-        ]
-        
         # Create output parser
-        self.output_parser = StructuredOutputParser.from_response_schemas(self.response_schemas)
+        self.output_parser = JsonOutputParser()
+
+        schema_requirements = """
+Return a JSON object with EXACTLY these keys:
+- name (string)
+- email (string)
+- phone (string)
+- skills (array of strings)
+- experience_years (number)
+- education (string)
+- professional_summary (string)
+- current_role (string)
+- location (string)
+""".strip()
         
         # Create prompt template
         self.prompt_template = PromptTemplate(
@@ -82,6 +80,8 @@ class ResumeParser:
 
 Resume Text:
 {resume_text}
+
+{schema_requirements}
 
 {format_instructions}
 
@@ -94,7 +94,10 @@ Important:
 
 Return only the JSON output, nothing else.""",
             input_variables=["resume_text"],
-            partial_variables={"format_instructions": self.output_parser.get_format_instructions()}
+            partial_variables={
+                "format_instructions": self.output_parser.get_format_instructions(),
+                "schema_requirements": schema_requirements,
+            }
         )
     
     def parse_resume(self, resume_text: str) -> Dict[str, any]:
