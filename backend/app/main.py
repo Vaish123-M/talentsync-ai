@@ -44,9 +44,15 @@ def create_app(config_name='development'):
     # Set upload folder path (relative to backend directory)
     backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     app.config['UPLOAD_FOLDER'] = os.path.join(backend_dir, 'uploads')
+    app.config['VECTOR_DB_PATH'] = os.path.join(backend_dir, 'vector_store')
+    app.config['VECTOR_COLLECTION_NAME'] = os.getenv('VECTOR_COLLECTION_NAME', 'candidates')
+    app.config['VECTOR_SEARCH_ENABLED'] = os.getenv('VECTOR_SEARCH_ENABLED', 'true').lower() in {
+        '1', 'true', 'yes', 'on'
+    }
     
     # Ensure upload folder exists
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    os.makedirs(app.config['VECTOR_DB_PATH'], exist_ok=True)
     
     # Setup logging
     setup_logging(app)

@@ -33,6 +33,7 @@ class ResumeService:
         self.upload_folder = upload_folder
         self.pdf_extractor = PDFExtractor()
         self.resume_parser = None
+        self.vector_search_service = None
         
         # Ensure upload folder exists
         os.makedirs(upload_folder, exist_ok=True)
@@ -41,7 +42,9 @@ class ResumeService:
         self,
         files: List[FileStorage],
         job_description: str = '',
-        use_semantic: bool = False
+        use_semantic: bool = False,
+        recruiter_id: str = 'default',
+        vector_search_service: Any = None
     ) -> Dict[str, Any]:
         """
         Process multiple uploaded resume files through the complete pipeline.
@@ -54,6 +57,7 @@ class ResumeService:
         """
         candidates = []
         errors = []
+        self.vector_search_service = vector_search_service
 
         logger.info("event=resume_upload_started total_files=%s", len(files))
         
@@ -76,6 +80,16 @@ class ResumeService:
                 })
 
         if candidates:
+            if self.vector_search_service is not None:
+                try:
+                    indexed_count = self.vector_search_service.index_candidates(
+                        candidates,
+                        recruiter_id=recruiter_id or 'default'
+                    )
+                    logger.info("event=resume_vector_indexing_completed indexed_count=%s", indexed_count)
+                except Exception:
+                    logger.exception("event=resume_vector_indexing_failed")
+
             if job_description and job_description.strip():
                 logger.info(
                     "event=resume_matching_started candidate_count=%s use_semantic=%s",

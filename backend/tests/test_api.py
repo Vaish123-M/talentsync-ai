@@ -1,6 +1,7 @@
 """API endpoint tests."""
 import io
 
+from app.routes import resume as resume_routes
 from app.services import job_matcher as job_matcher_module
 from app.services import resume_service as resume_service_module
 
@@ -31,6 +32,47 @@ class FakeParser:
 				'skills': ['Python', 'Flask', 'REST']
 			}
 		}
+
+
+class FakeVectorService:
+	"""In-memory fake vector service used for endpoint testing."""
+
+	def __init__(self):
+		self.index_calls = []
+
+	def index_candidates(self, candidates, recruiter_id):
+		self.index_calls.append({'candidates': candidates, 'recruiter_id': recruiter_id})
+		return len(candidates)
+
+	def semantic_search(self, job_description, recruiter_id=None, top_k=5):
+		pool = []
+		for call in self.index_calls:
+			if recruiter_id and call['recruiter_id'] != recruiter_id:
+				continue
+			for candidate in call['candidates']:
+				pool.append({
+					'id': candidate['id'],
+					'name': candidate['name'],
+					'summary': candidate.get('summary', ''),
+					'experience_years': candidate.get('experience_years', 0),
+					'skills': candidate.get('skills', []),
+					'match_score': 0.95 if 'python' in ' '.join(candidate.get('skills', [])).lower() else 0.65,
+					'recruiter_id': call['recruiter_id']
+				})
+
+		pool.sort(key=lambda item: item['match_score'], reverse=True)
+		return pool[:top_k]
+
+	def multi_job_match(self, recruiter_id, jobs, default_top_k=5):
+		payload = []
+		for job in jobs:
+			top_k = int(job.get('top_k', default_top_k))
+			payload.append({
+				'job_id': job.get('job_id', ''),
+				'job_description': job.get('job_description', ''),
+				'candidates': self.semantic_search(job.get('job_description', ''), recruiter_id, top_k)
+			})
+		return payload
 
 
 def test_resume_health_check(client):
@@ -188,3 +230,100 @@ def test_upload_with_semantic_flag_uses_semantic_similarity(client, monkeypatch)
 	assert len(candidates) == 2
 	assert candidates[0]['match_score'] >= candidates[1]['match_score']
 	assert all(candidate['match_score'] is not None for candidate in candidates)
+
+
+def test_vector_indexing_after_upload_and_metadata_integrity(client, monkeypatch):
+	"""Upload indexes candidates into vector service with recruiter metadata."""
+	fake_vector_service = FakeVectorService()
+	monkeypatch.setattr(resume_routes, 'get_vector_service', lambda: fake_vector_service)
+	monkeypatch.setattr(resume_service_module, 'get_resume_parser', lambda: FakeParser())
+	monkeypatch.setattr(
+		resume_service_module.PDFExtractor,
+		'extract_text_from_file',
+		staticmethod(lambda _file_path: {
+			'success': True,
+			'text': 'Backend resume with Python Flask SQL APIs',
+			'pages': 1,
+			'error': None
+		})
+	)
+
+	response = client.post(
+		'/api/resumes/upload',
+		data={
+			'recruiter_id': 'rec-001',
+			'files': [
+				(io.BytesIO(b'%PDF-1.4 resume one'), 'resume_one.pdf'),
+				(io.BytesIO(b'%PDF-1.4 resume two'), 'resume_two.pdf')
+			]
+		},
+		content_type='multipart/form-data'
+	)
+
+	assert response.status_code == 200
+	assert len(fake_vector_service.index_calls) == 1
+	index_call = fake_vector_service.index_calls[0]
+	assert index_call['recruiter_id'] == 'rec-001'
+	assert len(index_call['candidates']) == 2
+	first_candidate = index_call['candidates'][0]
+	assert {'id', 'name', 'experience_years', 'skills'}.issubset(set(first_candidate.keys()))
+
+
+def test_semantic_search_returns_top_k_candidates(client, monkeypatch):
+	"""Semantic search endpoint returns top K indexed candidates in descending order."""
+	fake_vector_service = FakeVectorService()
+	monkeypatch.setattr(resume_routes, 'get_vector_service', lambda: fake_vector_service)
+
+	fake_vector_service.index_candidates(
+		[
+			{'id': '1', 'name': 'A', 'summary': 'Python dev', 'experience_years': 3, 'skills': ['Python'], 'match_score': None},
+			{'id': '2', 'name': 'B', 'summary': 'React dev', 'experience_years': 2, 'skills': ['React'], 'match_score': None},
+			{'id': '3', 'name': 'C', 'summary': 'Python Flask dev', 'experience_years': 4, 'skills': ['Python', 'Flask'], 'match_score': None}
+		],
+		recruiter_id='rec-001'
+	)
+
+	response = client.post(
+		'/api/resumes/semantic-search',
+		json={
+			'job_description': 'Looking for Python backend engineer',
+			'recruiter_id': 'rec-001',
+			'top_k': 2
+		}
+	)
+
+	assert response.status_code == 200
+	payload = response.get_json()
+	assert payload['status'] == 'success'
+	assert len(payload['candidates']) == 2
+	assert payload['candidates'][0]['match_score'] >= payload['candidates'][1]['match_score']
+
+
+def test_multiple_uploads_stability_indexing(client, monkeypatch):
+	"""System remains stable under multiple uploads and indexes each batch."""
+	fake_vector_service = FakeVectorService()
+	monkeypatch.setattr(resume_routes, 'get_vector_service', lambda: fake_vector_service)
+	monkeypatch.setattr(resume_service_module, 'get_resume_parser', lambda: FakeParser())
+	monkeypatch.setattr(
+		resume_service_module.PDFExtractor,
+		'extract_text_from_file',
+		staticmethod(lambda _file_path: {
+			'success': True,
+			'text': 'Backend resume with Python Flask SQL APIs',
+			'pages': 1,
+			'error': None
+		})
+	)
+
+	for batch_idx in range(3):
+		response = client.post(
+			'/api/resumes/upload',
+			data={
+				'recruiter_id': f'rec-{batch_idx}',
+				'files': (io.BytesIO(b'%PDF-1.4 resume'), f'resume_{batch_idx}.pdf')
+			},
+			content_type='multipart/form-data'
+		)
+		assert response.status_code == 200
+
+	assert len(fake_vector_service.index_calls) == 3
