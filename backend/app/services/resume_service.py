@@ -1,15 +1,22 @@
 """Resume processing service orchestrating the full pipeline."""
 import os
 import logging
-from typing import Dict, List, Optional
+import uuid
+from typing import Any, Dict, List
+from pathlib import Path
 from werkzeug.utils import secure_filename
 from werkzeug.datastructures import FileStorage
 
 from app.utils.pdf_extractor import PDFExtractor
-from app.ai.resume_parser import get_parser
 
 
 logger = logging.getLogger(__name__)
+
+
+def get_resume_parser():
+    """Lazily import and return parser instance to avoid hard AI dependency at import time."""
+    from app.ai.resume_parser import get_parser
+    return get_parser()
 
 
 class ResumeService:
@@ -24,12 +31,12 @@ class ResumeService:
         """
         self.upload_folder = upload_folder
         self.pdf_extractor = PDFExtractor()
-        self.resume_parser = get_parser()
+        self.resume_parser = None
         
         # Ensure upload folder exists
         os.makedirs(upload_folder, exist_ok=True)
     
-    def process_uploaded_resumes(self, files: List[FileStorage]) -> Dict[str, any]:
+    def process_uploaded_resumes(self, files: List[FileStorage]) -> Dict[str, Any]:
         """
         Process multiple uploaded resume files through the complete pipeline.
         
@@ -39,38 +46,54 @@ class ResumeService:
         Returns:
             Dictionary containing processed results and errors
         """
-        results = []
+        candidates = []
         errors = []
+
+        logger.info("event=resume_upload_started total_files=%s", len(files))
         
         for file in files:
             try:
                 result = self._process_single_resume(file)
                 
                 if result['success']:
-                    results.append(result)
+                    candidates.append(result['candidate'])
                 else:
                     errors.append({
                         'filename': file.filename,
-                        'error': result.get('error', 'Unknown error')
+                        'message': result.get('error', 'Unknown error')
                     })
             except Exception as e:
-                logger.error(f"Error processing {file.filename}: {str(e)}")
+                logger.exception("event=resume_processing_failed filename=%s", file.filename)
                 errors.append({
                     'filename': file.filename,
-                    'error': str(e)
+                    'message': str(e)
                 })
-        
+
+        if candidates:
+            logger.info(
+                "event=resume_upload_completed processed=%s failed=%s",
+                len(candidates),
+                len(errors)
+            )
+            response: Dict[str, Any] = {
+                'status': 'success',
+                'candidates': candidates
+            }
+
+            if errors:
+                response['message'] = f"Processed {len(candidates)} file(s), {len(errors)} failed"
+
+            return response
+
+        error_message = errors[0]['message'] if errors else 'No files were processed'
+        logger.error("event=resume_upload_no_successes total_files=%s", len(files))
         return {
-            'status': 'success' if results else 'error',
-            'message': f'Successfully processed {len(results)} out of {len(files)} file(s)',
-            'results': results,
-            'total_uploaded': len(files),
-            'successful': len(results),
-            'failed': len(errors),
-            'errors': errors if errors else None
+            'status': 'error',
+            'message': error_message,
+            'candidates': []
         }
     
-    def _process_single_resume(self, file: FileStorage) -> Dict[str, any]:
+    def _process_single_resume(self, file: FileStorage) -> Dict[str, Any]:
         """
         Process a single resume file through the pipeline.
         
@@ -88,6 +111,7 @@ class ResumeService:
             Dictionary containing processing result
         """
         filename = file.filename
+        logger.debug("event=resume_file_received filename=%s", filename)
         
         # Step 1: Validate file type
         if not self._is_allowed_file(filename):
@@ -101,7 +125,7 @@ class ResumeService:
         try:
             saved_path = self._save_file(file)
         except Exception as e:
-            logger.error(f"Error saving file {filename}: {str(e)}")
+            logger.exception("event=resume_file_save_failed filename=%s", filename)
             return {
                 'success': False,
                 'filename': filename,
@@ -122,9 +146,15 @@ class ResumeService:
             
             extracted_text = extraction_result['text']
             page_count = extraction_result['pages']
+            logger.debug(
+                "event=resume_text_extracted filename=%s pages=%s text_length=%s",
+                filename,
+                page_count,
+                len(extracted_text)
+            )
             
         except Exception as e:
-            logger.error(f"Error extracting text from {filename}: {str(e)}")
+            logger.exception("event=resume_text_extraction_failed filename=%s", filename)
             return {
                 'success': False,
                 'filename': filename,
@@ -134,6 +164,9 @@ class ResumeService:
         
         # Step 4: Parse resume using AI
         try:
+            if self.resume_parser is None:
+                self.resume_parser = get_resume_parser()
+
             parse_result = self.resume_parser.parse_resume(extracted_text)
             
             if not parse_result['success']:
@@ -146,26 +179,80 @@ class ResumeService:
                 }
             
             candidate_data = parse_result['data']
+            candidate = self._to_candidate_payload(filename, candidate_data)
             
         except Exception as e:
-            logger.error(f"Error parsing resume {filename}: {str(e)}")
+            logger.exception("event=resume_parsing_failed filename=%s", filename)
             return {
                 'success': False,
                 'filename': filename,
                 'saved_path': saved_path,
-                'extracted_text': extracted_text[:500] + '...',
                 'error': f'Resume parsing error: {str(e)}'
             }
         
         # Step 5: Return complete result
         return {
             'success': True,
-            'filename': filename,
-            'saved_path': saved_path,
-            'pages': page_count,
-            'candidate_data': candidate_data,
-            'text_length': len(extracted_text)
+            'candidate': candidate
         }
+
+    def _to_candidate_payload(self, filename: str, parser_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Transform parser output into standardized business candidate contract."""
+        fallback_name = Path(filename).stem.replace('_', ' ').strip().title() if filename else 'Unknown Candidate'
+
+        raw_name = parser_data.get('name') if isinstance(parser_data, dict) else None
+        name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else fallback_name
+
+        raw_summary = parser_data.get('professional_summary') if isinstance(parser_data, dict) else None
+        summary = raw_summary.strip() if isinstance(raw_summary, str) else ''
+
+        raw_experience = parser_data.get('experience_years', 0) if isinstance(parser_data, dict) else 0
+        experience_years = self._safe_number(raw_experience)
+
+        raw_skills = parser_data.get('skills', []) if isinstance(parser_data, dict) else []
+        skills = self._normalize_skills(raw_skills)
+
+        return {
+            'id': str(uuid.uuid4()),
+            'name': name,
+            'summary': summary,
+            'experience_years': experience_years,
+            'skills': skills,
+            'match_score': None
+        }
+
+    @staticmethod
+    def _safe_number(value: Any) -> float:
+        """Convert numeric-like value to non-negative number."""
+        try:
+            parsed = float(value)
+            return max(0.0, parsed)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @staticmethod
+    def _normalize_skills(skills: Any) -> List[str]:
+        """Normalize skills into de-duplicated list of strings."""
+        if isinstance(skills, str):
+            raw_skills = [segment.strip() for segment in skills.split(',')]
+        elif isinstance(skills, list):
+            raw_skills = [str(skill).strip() for skill in skills]
+        else:
+            raw_skills = []
+
+        normalized = []
+        seen = set()
+
+        for skill in raw_skills:
+            if not skill:
+                continue
+            lowered = skill.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            normalized.append(skill)
+
+        return normalized
     
     def _save_file(self, file: FileStorage) -> str:
         """

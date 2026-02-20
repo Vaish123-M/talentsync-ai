@@ -26,12 +26,6 @@ const UploadResumes = () => {
 
   const handleUpload = async () => {
     await uploadResumes();
-    if (error) {
-      setNotification({
-        type: 'error',
-        message: error,
-      });
-    }
   };
 
   const handleRemoveFile = (index) => {

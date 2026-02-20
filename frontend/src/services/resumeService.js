@@ -15,11 +15,15 @@ export const resumeService = {
     });
 
     try {
-      const response = await api.post('/upload-resumes', formData, {
+      const response = await api.post('/api/resumes/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
         onUploadProgress: (progressEvent) => {
+          if (!progressEvent.total) {
+            return;
+          }
+
           const percentCompleted = Math.round(
             (progressEvent.loaded * 100) / progressEvent.total
           );
@@ -31,7 +35,8 @@ export const resumeService = {
 
       return response.data;
     } catch (error) {
-      throw error;
+      const message = error?.response?.data?.message || 'Failed to upload resumes';
+      throw new Error(message);
     }
   },
 

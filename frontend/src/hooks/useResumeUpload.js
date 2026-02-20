@@ -33,11 +33,15 @@ const useResumeUpload = () => {
         }
       );
 
+      if (response?.status !== 'success' || !Array.isArray(response?.candidates)) {
+        throw new Error('Unexpected API response format');
+      }
+
       setResults(response);
       setSelectedFiles([]);
       setProgress(100);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to upload resumes');
+      setError(err.message || 'Failed to upload resumes');
       setProgress(0);
     } finally {
       setLoading(false);

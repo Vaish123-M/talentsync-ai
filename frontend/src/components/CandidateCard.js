@@ -1,7 +1,7 @@
 import React from 'react';
 
 const CandidateCard = ({ candidate }) => {
-  const { name, skills, experience, education, summary, email, phone } = candidate;
+  const { name, skills, experience_years, summary } = candidate;
 
   return (
     <div className="bg-white rounded-lg shadow-soft p-6 hover:shadow-lg transition-shadow">
@@ -14,8 +14,6 @@ const CandidateCard = ({ candidate }) => {
           </div>
           <div>
             <h3 className="text-lg font-semibold text-gray-900">{name || 'Unknown'}</h3>
-            {email && <p className="text-sm text-gray-500">{email}</p>}
-            {phone && <p className="text-sm text-gray-500">{phone}</p>}
           </div>
         </div>
       </div>
@@ -47,17 +45,10 @@ const CandidateCard = ({ candidate }) => {
         </div>
       )}
 
-      {experience && (
+      {typeof experience_years === 'number' && (
         <div className="mb-4">
           <h4 className="text-xs font-semibold text-gray-700 uppercase mb-2">Experience</h4>
-          <p className="text-sm text-gray-600">{experience}</p>
-        </div>
-      )}
-
-      {education && (
-        <div className="mb-4">
-          <h4 className="text-xs font-semibold text-gray-700 uppercase mb-2">Education</h4>
-          <p className="text-sm text-gray-600">{education}</p>
+          <p className="text-sm text-gray-600">{experience_years} year(s)</p>
         </div>
       )}
 
